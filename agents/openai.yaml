@@ -1,0 +1,6 @@
+interface:
+  display_name: "会议录音纪要"
+  short_description: "录音转逐字稿和老板版结构化纪要"
+  default_prompt: "Use $meeting-audio-minutes to turn this Chinese meeting recording into a faithful transcript and structured DOCX minutes."
+policy:
+  allow_implicit_invocation: true
