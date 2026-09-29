@@ -1,6 +1,6 @@
 ---
 name: meeting-audio-minutes
-description: Convert Chinese expert interview, user research, or small-group meeting recordings into a faithful transcript Markdown and an executive-ready structured meeting minutes DOCX. Use when the user provides or references mp3, wav, m4a, or mp4 recordings and wants verbatim transcript, Q/A notes, summary, or boss-facing minutes with zero-hallucination constraints.
+description: Convert Chinese expert interview, user research, or small-group meeting recordings into a faithful transcript and high-coverage executive minutes through staged information extraction, logic reconstruction, drafting, and coverage repair. Use when the user provides or references mp3, wav, m4a, or mp4 recordings and needs transcript-backed minutes without losing business distinctions.
 ---
 
 # Meeting Audio Minutes
@@ -14,7 +14,7 @@ These rules override any older prompt, template, or user-provided draft unless t
 1. Do not infer, complete, or invent missing speech. If speech is interrupted or lost, mark `【发言中断】`, `【听不清】`, or `【重叠发言】`.
 2. Do not normalize numbers. Preserve spoken wording such as "大概两百多个亿"; do not rewrite it as "约200亿元".
 3. Do not correct homophones unless the correction appears in the user-provided glossary. If uncertain, preserve ASR text and mark `【存疑：...】`.
-4. Do not add fact/opinion labels in the transcript. Add them only in the minutes.
+4. Do not add fact/opinion labels in the transcript. In minutes, prefer natural qualifiers and use explicit labels only when they materially clarify uncertainty.
 5. Every number, amount, ratio, time, ranking, company name, product name, and key factual claim in the minutes must be traceable to the transcript.
 6. Do not send audio, transcript, or minutes to an external service without confirming with the user immediately before the call.
 7. Prefer controlled or enterprise environments for sensitive recordings. Do not route confidential content to an uncontrolled public hosted model by default.
@@ -35,6 +35,8 @@ Optional but helpful:
 - Glossary: one term per line, optionally `误识别=正确术语` or `简称=全称`.
 - Meeting purpose.
 - Focus questions.
+- Interview outline file: optional context for research intent; never use it as the final minutes structure.
+- User notes file: optional emphasis and terminology aid; never let it override fuller transcript wording.
 - Preferred output folder.
 
 Use `references/meeting_meta_template.md` when the user wants a fillable metadata file.
@@ -72,12 +74,20 @@ Transcript-to-minutes:
 3. Run `scripts/run_meeting_workflow.py` only after the user explicitly approves external API processing for that specific recording.
 4. Transcribe audio with Doubao speaker separation. Preserve time ranges for traceability.
 5. Convert ASR output into faithful transcript Markdown using `references/transcript_rules.md`.
-6. Generate structured minutes from the transcript using `references/minutes_rules.md`.
-7. Run quality checks from `references/quality_check.md`.
+6. Generate minutes with the four-stage fidelity reconstruction in `references/minutes_rules.md`:
+   - extract a complete information inventory from the transcript;
+   - reconstruct the expert's actual business logic;
+   - write formal boss-facing minutes;
+   - audit coverage and automatically repair the final minutes.
+7. Run quality checks from `references/quality_check.md`. The full transcript is sent mainly in stage 1; later stages use the information inventory instead of repeatedly sending the transcript.
 8. Create final outputs:
    - `逐字稿.md`
+   - `信息清单.md`
+   - `逻辑结构.md`
+   - `纪要初稿.md`
+   - `会议纪要.md`
    - `会议纪要.docx`
-   - Optional `摘要.md`
+   - `模型用量.json`
 
 Default output location:
 
@@ -91,10 +101,18 @@ Example command after approval:
 python3 .codex/skills/meeting-audio-minutes/scripts/run_meeting_workflow.py --meta meeting_meta.md --yes
 ```
 
+Optional outline and notes may be supplied either in metadata or on the command line:
+
+```bash
+python3 .codex/skills/meeting-audio-minutes/scripts/run_meeting_workflow.py \
+  --meta meeting_meta.md --outline 访谈提纲.md --notes 访谈速记.md --yes
+```
+
 Dry-run path check without API calls:
 
 ```bash
-python3 .codex/skills/meeting-audio-minutes/scripts/run_meeting_workflow.py --meta meeting_meta.md --yes --dry-run
+python3 .codex/skills/meeting-audio-minutes/scripts/run_meeting_workflow.py \
+  --meta meeting_meta.md --skip-asr --transcript existing_逐字稿.md --dry-run
 ```
 
 When the user asks to process a recording, first ask them to fill or confirm `meeting_meta.md`. Do not run the workflow from only an audio path unless the user explicitly says it is a technical test.
@@ -110,10 +128,11 @@ Transcript:
 Minutes:
 
 - DOCX.
-- Boss-facing, concise, structured, and easy to scan.
-- Default order: summary, question 1 and answer, question 2 and answer, then thematic sections if needed.
-- Use tables for dense comparisons, data points, risks, open questions, and action/follow-up items.
-- Keep visual structure practical: headings, tables, short paragraphs, and source references. Avoid decorative prose.
+- Boss-facing, concise, structured, and easy to scan only after information is preserved and logic is reconstructed.
+- Organize by the expert's actual business logic, not by the interview outline or mechanical Q&A order.
+- Prefer headings plus conclusion/supporting bullets. Use tables only when true horizontal comparison becomes clearer.
+- Preserve distinctions across time, object, status, mechanism, conditions, exceptions, examples, rankings, and priorities.
+- Use natural qualifiers for actuals, targets, plans, pending approval, and expert forecasts instead of labeling every sentence.
 
 ## Reference Files
 

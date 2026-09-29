@@ -3,7 +3,8 @@
 Codex skill for converting Chinese expert interviews, user research sessions, and small meeting recordings into:
 
 - a faithful Markdown transcript
-- a boss-facing structured meeting-minutes Markdown
+- a staged information inventory and expert-logic outline
+- a boss-facing, coverage-audited meeting-minutes Markdown
 - a DOCX minutes document
 
 The workflow is designed for sensitive interview material and emphasizes:
@@ -11,6 +12,8 @@ The workflow is designed for sensitive interview material and emphasizes:
 - no hallucinated completion of missing speech
 - no normalization of spoken numbers
 - traceable facts and source timestamps
+- preservation of distinct times, objects, statuses, mechanisms, conditions, exceptions, and examples
+- four-stage reconstruction instead of one-shot summarization
 - explicit user confirmation before any external API call
 
 ## Included Files
@@ -18,7 +21,7 @@ The workflow is designed for sensitive interview material and emphasizes:
 - `SKILL.md`: skill behavior, guardrails, and workflow
 - `scripts/run_meeting_workflow.py`: end-to-end entrypoint
 - `scripts/doubao_tos_asr.py`: upload local audio to private TOS, submit to Doubao ASR, poll results, and write transcript artifacts
-- `scripts/deepseek_minutes.py`: generate structured minutes Markdown and DOCX from transcript
+- `scripts/deepseek_minutes.py`: run extraction, logic reconstruction, drafting, coverage repair, and DOCX generation
 - `references/`: transcript rules, minutes rules, metadata template, quality checks, and TOS/ASR flow notes
 - `agents/openai.yaml`: display metadata for the skill
 
@@ -30,6 +33,11 @@ The workflow is designed for sensitive interview material and emphasizes:
 - participant roles
 - industry/domain
 - approval for external API processing for the specific recording
+
+Optional inputs:
+
+- interview outline: research context only; it never dictates the final structure
+- user notes: emphasis and terminology aid only; they never override the transcript
 
 ## External Services
 
@@ -57,13 +65,23 @@ Secrets should stay local and must not be committed.
 python3 scripts/run_meeting_workflow.py --meta meeting_meta.md --yes
 ```
 
+With optional context:
+
+```bash
+python3 scripts/run_meeting_workflow.py --meta meeting_meta.md \
+  --outline 访谈提纲.md --notes 访谈速记.md --yes
+```
+
 Dry run:
 
 ```bash
-python3 scripts/run_meeting_workflow.py --meta meeting_meta.md --yes --dry-run
+python3 scripts/run_meeting_workflow.py --meta meeting_meta.md \
+  --skip-asr --transcript existing_逐字稿.md --dry-run
 ```
 
 ## Notes
 
 - The generated transcript preserves ASR wording unless a user glossary explicitly allows correction.
-- The generated minutes are intended to be concise, executive-readable, and traceable back to the transcript.
+- The minutes pipeline normally makes four model calls: information extraction, logic reconstruction, formal drafting, and coverage audit/repair.
+- Only the first call receives the full transcript. Later calls use the extracted information inventory, which controls token cost while retaining coverage.
+- Intermediate `信息清单.md`, `逻辑结构.md`, `纪要初稿.md`, and `模型用量.json` files are retained for review.

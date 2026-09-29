@@ -31,12 +31,19 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Validate metadata and print planned outputs without calling APIs")
     parser.add_argument("--skip-asr", action="store_true", help="Skip ASR and use existing transcript from --transcript")
     parser.add_argument("--transcript", help="Existing transcript Markdown path when --skip-asr is used")
+    parser.add_argument("--outline", help="Optional interview outline file; overrides metadata 访谈提纲文件")
+    parser.add_argument("--notes", help="Optional user notes file; overrides metadata 访谈速记文件")
     args = parser.parse_args()
 
-    meta = parse_meta(Path(args.meta))
+    meta_path = Path(args.meta).expanduser().resolve()
+    meta = parse_meta(meta_path)
     validate_meta(meta)
-    if not args.yes and meta.get("是否允许本次外部 API 处理", "").strip() != "是":
-        raise SystemExit("External API processing is not approved. Set metadata to 是 and pass --yes after confirming data path.")
+    if not args.dry_run and (
+        not args.yes or meta.get("是否允许本次外部 API 处理", "").strip() != "是"
+    ):
+        raise SystemExit(
+            "External API processing requires both metadata=是 and --yes after confirming the data path."
+        )
 
     output_dir = Path(args.output_dir or meta.get("输出目录") or default_output_dir(meta)).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -52,19 +59,52 @@ def main() -> int:
     asr_json_path = output_dir / f"{stem}_asr.json"
     minutes_md_path = output_dir / f"{stem}_会议纪要.md"
     minutes_docx_path = output_dir / f"{stem}_会议纪要.docx"
+    information_md_path = output_dir / f"{stem}_信息清单.md"
+    structure_md_path = output_dir / f"{stem}_逻辑结构.md"
+    draft_md_path = output_dir / f"{stem}_纪要初稿.md"
+    usage_json_path = output_dir / f"{stem}_模型用量.json"
+
+    outline_path = resolve_optional_path(
+        args.outline or meta.get("访谈提纲文件", ""), meta_path.parent, "访谈提纲文件"
+    )
+    notes_path = resolve_optional_path(
+        args.notes or meta.get("访谈速记文件", ""), meta_path.parent, "访谈速记文件"
+    )
 
     if args.dry_run:
+        if args.skip_asr:
+            if not args.transcript:
+                raise SystemExit("--transcript is required with --skip-asr")
+            transcript_path = Path(args.transcript).expanduser()
+            if not transcript_path.exists():
+                raise SystemExit(f"Transcript file not found: {transcript_path}")
         print("OUTPUT_DIR=" + str(output_dir))
         print("TRANSCRIPT=" + str(transcript_path))
         print("ASR_JSON=" + str(asr_json_path))
         print("MINUTES_MD=" + str(minutes_md_path))
         print("MINUTES_DOCX=" + str(minutes_docx_path))
+        print("INFORMATION_MD=" + str(information_md_path))
+        print("STRUCTURE_MD=" + str(structure_md_path))
+        print("DRAFT_MD=" + str(draft_md_path))
+        print("USAGE_JSON=" + str(usage_json_path))
+        if outline_path:
+            print("OUTLINE=" + str(outline_path))
+        if notes_path:
+            print("NOTES=" + str(notes_path))
+        if args.skip_asr:
+            run(minutes_command(
+                transcript_path, minutes_md_path, minutes_docx_path, information_md_path,
+                structure_md_path, draft_md_path, usage_json_path, meta,
+                outline_path, notes_path, dry_run=True,
+            ), env)
         return 0
 
     if args.skip_asr:
         if not args.transcript:
             raise SystemExit("--transcript is required with --skip-asr")
-        transcript_path = Path(args.transcript)
+        transcript_path = Path(args.transcript).expanduser()
+        if not transcript_path.exists():
+            raise SystemExit(f"Transcript file not found: {transcript_path}")
     else:
         audio = Path(meta["音频文件"]).expanduser()
         if not audio.exists():
@@ -77,20 +117,19 @@ def main() -> int:
             "--markdown-out", str(transcript_path),
         ], env)
 
-    run([
-        PYTHON,
-        str(SKILL_DIR / "scripts" / "deepseek_minutes.py"),
-        "--transcript", str(transcript_path),
-        "--minutes-md", str(minutes_md_path),
-        "--minutes-docx", str(minutes_docx_path),
-        "--topic", meta.get("会议主题", ""),
-        "--date", meta.get("会议日期", ""),
-        "--participants", meta.get("参会角色", ""),
-    ], env)
+    run(minutes_command(
+        transcript_path, minutes_md_path, minutes_docx_path, information_md_path,
+        structure_md_path, draft_md_path, usage_json_path, meta,
+        outline_path, notes_path,
+    ), env)
 
     print("TRANSCRIPT=" + str(transcript_path))
+    print("INFORMATION_MD=" + str(information_md_path))
+    print("STRUCTURE_MD=" + str(structure_md_path))
+    print("DRAFT_MD=" + str(draft_md_path))
     print("MINUTES_MD=" + str(minutes_md_path))
     print("MINUTES_DOCX=" + str(minutes_docx_path))
+    print("USAGE_JSON=" + str(usage_json_path))
     return 0
 
 
@@ -114,6 +153,47 @@ def validate_meta(meta: dict) -> None:
     missing = [key for key in REQUIRED_META if not meta.get(key)]
     if missing:
         raise SystemExit("Missing meeting metadata fields: " + ", ".join(missing))
+
+
+def resolve_optional_path(value: str, base_dir: Path, label: str):
+    value = (value or "").strip()
+    if not value or value.startswith("（可留空") or value.startswith("(optional"):
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    path = path.resolve()
+    if not path.exists():
+        raise SystemExit(f"{label} not found: {path}")
+    return path
+
+
+def minutes_command(
+    transcript_path, minutes_md_path, minutes_docx_path, information_md_path,
+    structure_md_path, draft_md_path, usage_json_path, meta,
+    outline_path=None, notes_path=None, dry_run=False,
+):
+    cmd = [
+        PYTHON,
+        str(SKILL_DIR / "scripts" / "deepseek_minutes.py"),
+        "--transcript", str(transcript_path),
+        "--minutes-md", str(minutes_md_path),
+        "--minutes-docx", str(minutes_docx_path),
+        "--information-md", str(information_md_path),
+        "--structure-md", str(structure_md_path),
+        "--draft-md", str(draft_md_path),
+        "--usage-json", str(usage_json_path),
+        "--topic", meta.get("会议主题", ""),
+        "--date", meta.get("会议日期", ""),
+        "--participants", meta.get("参会角色", ""),
+    ]
+    if outline_path:
+        cmd.extend(["--outline", str(outline_path)])
+    if notes_path:
+        cmd.extend(["--notes", str(notes_path)])
+    if dry_run:
+        cmd.append("--dry-run")
+    return cmd
 
 
 def load_env_file(path: Path, env: dict) -> None:

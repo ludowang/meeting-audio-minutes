@@ -13,7 +13,12 @@ meeting_meta.example.md
 *.mp4
 *_asr.json
 *_逐字稿.md
+*_信息清单.md
+*_逻辑结构.md
+*_纪要初稿.md
 *_会议纪要.md
 *_会议纪要.docx
+*_模型用量.json
+*_dry_run_prompts/
 dist/
 build/
